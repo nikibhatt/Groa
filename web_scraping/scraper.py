@@ -138,7 +138,7 @@ less than the end position")
         df['date'] = df['date'].dt.strftime('%Y-%m-%d').astype(str)
         return df
 
-    def scrape(self):
+    def scrape(self, id_list=None):
         """
         Scrapes imbd.com for user review pages.
 
@@ -148,7 +148,7 @@ less than the end position")
         Fails gracefully on movies with no reviews, moving on without
         returning anything.
         """
-        id_list = self.get_ids()
+        id_list = self.current_ids if id_list is None else id_list
 
         t = time.perf_counter()
         movie_id = []
@@ -186,8 +186,8 @@ code {response.status_code}!")
                 soup = BeautifulSoup(response.text, 'html.parser')
                 items = soup.find_all(class_='lister-item-content')
                 print(f"ID: {id} at index {self.all_ids.index(id)}")
-
                 while True:
+
                     if iteration_counter >= self.max_iter_count:
                         df = self.make_dataframe(movie_id, reviews, rating,
                                                  titles, username,
@@ -353,7 +353,7 @@ code {response.status_code}!")
         print("Connecting to database...")
         try:
             # connect to the database and query it for the review/movie ids
-            cursor, connection = self.connect_to_database()
+            cursor, _ = self.connect_to_database()
             print("Connected.")
             query = "SELECT review_id, movie_id FROM reviews"
             cursor.execute(query)
@@ -361,7 +361,6 @@ code {response.status_code}!")
             print("Fetching IDs...")
             self.ids = cursor.fetchall()
             cursor.close()
-            connection.close()
             print("Done.")
         except Exception as e:
             print(e)
@@ -391,6 +390,7 @@ code {response.status_code}!")
         print(f"Retrieved {cursor.rowcount} review/movie ID's in {elapsed}")
         print(f"The ID's are stored as {type(self.ids)}")
         print(f"The first 10 entries are:\n{self.ids[:10]}")
+        print()
 
         return self.ids
 
@@ -415,7 +415,7 @@ code {response.status_code}!")
         e = str(timedelta(seconds=elapsed))
         return e
 
-    def update(self):
+    def update(self, ids=None):
         '''
         Scrapes IMDB for reviews, then adds only new reviews.
 
@@ -432,7 +432,7 @@ code {response.status_code}!")
         that movie ID and the whole process is repeated with the next
         unique movie ID.
         '''
-        ids = pull_ids(save=False)
+        ids = self.ids if ids is None else ids
         review_ids = []
         movie_ids = []
 
@@ -588,7 +588,7 @@ code {response.status_code}!")
         self.ids = df.values.tolist()
         return self.ids
 
-    def scrape_letterboxd(self):
+    def scrape_letterboxd(self, id_list=None):
         """
         Scrapes letterboxd.com for review pages.
 
@@ -598,7 +598,7 @@ code {response.status_code}!")
         reviews also hit an exception. This is much slower than imbd
         due to differing website design.
         """
-        id_list = self.get_ids()
+        id_list = self.current_ids if id_list is None else id_list
         t = time.perf_counter()
         movie_id = []
         rating = []
@@ -879,12 +879,15 @@ equal to the end position.")
         update = checker("Do you want to reject reviews already \
 in the database?")
         if update == "y" or update == "yes":
-            s.update()
+            ids = s.pull_ids(save=False)
+            s.update(ids)
         elif update == "n" or update == "no":
-            s.scrape()
+            id_list = s.get_ids()
+            s.scrape(id_list)
     elif website == "n" or website == "no":
         website2 = checker("Are you scraping Letterboxd?")
         if website2 == "y" or website2 == "yes":
-            s.scrape_letterboxd()
+            ids = s.get_ids()
+            s.scrape_letterboxd(ids)
         elif website2 == "n" or website2 == "no":
             s.scrape_finder()

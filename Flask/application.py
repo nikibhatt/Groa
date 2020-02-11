@@ -1,8 +1,6 @@
 from flask import Flask, session, render_template, request, flash, redirect, send_file
 from flask_session import Session
-from time import sleep
 import pandas as pd
-import math
 import numpy as np
 from zipfile import ZipFile
 import json
@@ -21,27 +19,9 @@ SESSION_TYPE = 'filesystem'
 application.config.from_object(__name__)
 Session(application)
 
-master_w2v = 'models/w2v_limitingfactor_v3.51.model'
-master_r2v = 'models/r2v_Botanist_v1.1000.5.model'
-
 def links(x):
     '''Changes URLs to actual links'''
-    return '<a href="%s">IMDb page</a>' % (x)
-
-def highlight_watchlist(id_column, title_column, watchlist):
-    '''
-    This function checks the "Movie ID" column against the watchlist and
-    will give booleans on whether the ID in the column is present on the list.
-    If it is present, then it adds color styling.
-    '''
-    bool_list=[]
-    for x in id_column:
-        bool_list.append(str(x) in watchlist)
-        if str(x) in watchlist:
-            print("got a match!")
-    matched = list(zip(title_column, bool_list))
-    b = [f'<p style="color:#b59fe0">{title}</p>' if x==True else title for title, x in matched]
-    return b
+    return '<a href="%s">Go to the IMDb page</a>' % (x)
 
 @application.route("/")
 def index():
@@ -96,7 +76,6 @@ def lb_submit():
             session['watched'] = watched.to_json()
             session['watchlist'] = watchlist.to_json()
 
-            sleep(1) # wait for session to save
             shutil.rmtree(f'temp{tag}') # remove temp folder
 
             return render_template('public/letterboxd_submission.html',
@@ -119,9 +98,9 @@ def lb_recommend():
     extra_weight = "extra_weight" in request.form # user requests cult movies
 
     # connect
-    s = Recommender(master_w2v)
+    s = Recommender('w2v_limitingfactor_v1.model')
     s.connect_db()
-    r = r2v_Recommender(master_r2v)
+    r = r2v_Recommender('r2v_Botanist_v1.1000.5.model')
     r.connect_db()
 
     # prep user watch history
@@ -162,7 +141,6 @@ def lb_recommend():
                 + cult_df['Movie ID'] + '>  Good idea<br>'
             cult_df['Vote Down'] = '<input type="checkbox" name="downvote" value=' \
                 + cult_df['Movie ID'] + '>  Hard No<br>'
-            cult_df['Title'] = highlight_watchlist(cult_df['Movie ID'], cult_df['Title'], val_list)
         if hidden:
             hidden_df = pd.DataFrame(hidden_results,
                 columns=['Title', 'Year', 'URL', '# Votes', 'Avg. Rating',
@@ -172,11 +150,9 @@ def lb_recommend():
                 + hidden_df['Movie ID'] + '>  Good idea<br>'
             hidden_df['Vote Down'] = '<input type="checkbox" name="downvote" value=' \
                 + hidden_df['Movie ID'] + '>  Hard No<br>'
-            hidden_df['Title'] = highlight_watchlist(hidden_df['Movie ID'], hidden_df['Title'], val_list)
 
     recs['Liked by fans of...'] = recs['Movie ID'].apply(lambda x: s.get_most_similar_title(x, good_list))
     recs['URL'] = recs['URL'].apply(links)
-    recs['Title'] = highlight_watchlist(recs['Movie ID'], recs['Title'], val_list)
     recs['Vote Up'] = '<input type="checkbox" name="upvote" value=' \
         + recs['Movie ID'] + '>  Good idea<br>'
     recs['Vote Down'] = '<input type="checkbox" name="downvote" value=' \
@@ -238,7 +214,7 @@ def resubmit():
     except:
         pass
     extra_weight = session['extra_weight']
-    s = Recommender(master_w2v)
+    s = Recommender('w2v_limitingfactor_v1.model')
     s.connect_db()
     # pass dictionary of ratings if the user requests extra weighting
     if extra_weight:
@@ -263,7 +239,6 @@ def resubmit():
         + recs['Movie ID'] + '>  Hard No<br>'
     id_list2 = recs['Movie ID'].to_list()
     difference_list = list(set(id_list2).difference(set(id_list)))
-
     def bool_func(column,id_list):
         '''
         This function checks the "Movie ID" column against the id_list and
@@ -273,11 +248,9 @@ def resubmit():
         bool_list=[]
         for x in column:
             bool_list.append(x in id_list)
-        b = ['<p style="color: #00bc8c">NEW!</p>' if x==True else '' for x in bool_list]
+        b = ['NEW!' if x==True else '' for x in bool_list]
         return b
-
     recs['New Rec?'] = bool_func(recs['Movie ID'],difference_list)
-    recs['Title'] = highlight_watchlist(recs['Movie ID'], recs['Title'], val_list)
     cols=recs.columns.to_list()
     recs=recs[cols[-1:]+cols[:-1]] #puts New Rec? column as column number 1 or number 0 if you're a computer
     session['id_list'] = json.dumps(id_list2)
@@ -345,12 +318,11 @@ def imdb_recommend():
     bad_rate = int(request.form['bad_rate'])/2
     good_rate = int(request.form['good_rate'])/2
 
-    watched = pd.DataFrame() # IMDb user only uploads ratings
-    watchlist = pd.DataFrame()
-
+    watched = None # IMDb user only uploads ratings
+    watchlist = None
     extra_weight = "extra_weight" in request.form # user requests extra weighting
     # connect
-    s = Recommender(master_w2v)
+    s = Recommender('w2v_limitingfactor_v1.model')
     s.connect_db()
 
     # prep user watch history
@@ -411,7 +383,7 @@ def download_recs():
             except:
                 checked_list = []
             checked_list.extend(request.form.getlist('upvote')) # log upvotes
-            s = Recommender(master_w2v)
+            s = Recommender('w2v_limitingfactor_v1.model')
             s.connect_db()
             checked_list = [fill_id(x) for x in checked_list]
             checked_info = [s._get_info(x) for x in checked_list]
@@ -462,7 +434,7 @@ def user_reviews():
 
     session['ratings']=ratings.to_json()
     session['reviews']=reviews.to_json()
-
+    
     return render_template('public/user_reviews.html', data=df.head(10).to_html(index=False), name=name)
 
 @application.route('/user_search_recommendations', methods=['GET', 'POST'])
@@ -472,8 +444,8 @@ def user_search_recommend():
     '''
     ratings = pd.read_json(session['ratings'])
     reviews = pd.read_json(session['reviews'])
-    watched = pd.DataFrame()
-    watchlist = pd.DataFrame()
+    watched = None
+    watchlist = None
     bad_rate = int(request.form['bad_rate'])/2
     good_rate = int(request.form['good_rate'])/2
     hidden = "hidden" in request.form # user requests hidden gems
@@ -481,9 +453,9 @@ def user_search_recommend():
     extra_weight = "extra_weight" in request.form # user requests cult movies
 
     # connect
-    s = Recommender(master_w2v)
+    s = Recommender('w2v_limitingfactor_v1.model')
     s.connect_db()
-    r = r2v_Recommender(master_r2v)
+    r = r2v_Recommender('r2v_Botanist_v1.1000.5.model')
     r.connect_db()
 
     # prep user watch history
